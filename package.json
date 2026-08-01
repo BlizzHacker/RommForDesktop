@@ -1,7 +1,7 @@
 {
   "name": "romm-for-desktop",
   "version": "0.1.0",
-  "description": "Play your self-hosted RomM retro library locally on Windows \u00e2\u20ac\u201d EmulatorJS + bundled RetroArch, no cloud server does the emulation.",
+  "description": "Cartridge \u2014 RomM for Windows. Play your self-hosted RomM library locally: EmulatorJS + bundled RetroArch, no cloud server does the emulation. Unofficial; not affiliated with the RomM project.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.moveweight.rommdesktop",
-    "productName": "RomM",
+    "productName": "Cartridge",
     "directories": {
       "output": "dist"
     },
