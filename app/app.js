@@ -182,7 +182,9 @@ function renderSetup(status) {
   setupItems().forEach((it, i) => {
     const d = document.createElement('div');
     d.className = 'opt' + (i === setupIdx ? ' focus' : '');
-    d.innerHTML = `<b>${it.label}</b><span class="dim">${it.sub || ''}</span>`;
+    d.innerHTML = `<span class="opt-title">${it.label}</span>` +
+      (it.sub ? `<span>${it.sub}</span>` : '');
+    d.addEventListener('click', () => { setupIdx = i; it.go(); });
     opts.appendChild(d);
   });
 }
@@ -592,20 +594,56 @@ function footnote() {
   return bits.join(' · ');
 }
 
+/* A glyph per platform family — turns a wall of text into something scannable.
+ * Falls back to a generic controller. */
+function platGlyph(slug) {
+  const s = slug || '';
+  if (/nes|famicom|fds/.test(s)) return '🍄';
+  if (/snes|sfam|satellaview/.test(s)) return '🎮';
+  if (/n64/.test(s)) return '🕹️';
+  if (/gb|gba|gbc/.test(s)) return '🟪';
+  if (/nds|dsi|3ds/.test(s)) return '📱';
+  if (/wii|ngc|gamecube/.test(s)) return '🎲';
+  if (/genesis|megadrive|sms|gamegear|sega|saturn|dreamcast|dc|32x|segacd/.test(s)) return '🔵';
+  if (/psx|^ps$|ps2|psp/.test(s)) return '🎯';
+  if (/arcade|mame|neogeo|naomi|atomiswave/.test(s)) return '🕹️';
+  if (/atari|lynx|jaguar/.test(s)) return '🔺';
+  if (/amiga|c64|c128|dos|msx|zx|amstrad/.test(s)) return '💾';
+  if (/turbografx|pce|pcfx|supergrafx/.test(s)) return '🟠';
+  return '🎮';
+}
+
 function renderRail() {
   const rail = $('platform-rail');
   rail.innerHTML = '';
+  const brand = document.createElement('div');
+  brand.className = 'rail-brand';
+  brand.innerHTML = '<span class="logo">R</span>' +
+    '<span>RomM <span class="accent">Desktop</span></span>';
+  rail.appendChild(brand);
+  const lbl = document.createElement('div');
+  lbl.className = 'rail-label';
+  lbl.textContent = 'Platforms';
+  rail.appendChild(lbl);
+
   // The count is not decoration: RomM can hold two platforms with the same
-  // display name (two "Amiga" entries on this library), and without it they are
-  // indistinguishable in the rail.
-  platforms.forEach(({ p }, i) => {
+  // display name (two "Amiga" entries on this library), so it disambiguates.
+  platforms.forEach(({ p, tier }, i) => {
     const d = document.createElement('div');
     d.className = 'plat' + (i === platIdx ? ' current' : '');
-    d.textContent = `${p.display_name || p.name || p.slug} (${p.rom_count})`;
+    const name = p.display_name || p.name || p.slug;
+    const tierClass = tier === 'native' ? 'native'
+      : tier === 'local' ? 'local' : 'stream';
+    d.innerHTML =
+      `<span class="glyph">${platGlyph(p.slug)}</span>` +
+      `<span class="pname">${name}</span>` +
+      `<span class="pcount">${p.rom_count}</span>` +
+      `<span class="tier ${tierClass}" title="${tier}"></span>`;
+    d.addEventListener('click', () => { platIdx = i; loadGames(); });
     rail.appendChild(d);
   });
-  const cur = rail.children[platIdx];
-  if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+  const cur = rail.querySelector('.plat.current');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
 function renderGrid() {
@@ -624,12 +662,14 @@ function renderGrid() {
     } else {
       const ph = document.createElement('div');
       ph.className = 'ph';
+      ph.textContent = platGlyph(platforms[platIdx] && platforms[platIdx].p.slug);
       t.appendChild(ph);
     }
     const cap = document.createElement('div');
     cap.className = 't';
     cap.textContent = g.name || g.fs_name_no_ext || g.fs_name;
     t.appendChild(cap);
+    t.addEventListener('click', () => { gameIdx = i; startGame(g); });
     grid.appendChild(t);
   });
   const cur = grid.children[gameIdx];

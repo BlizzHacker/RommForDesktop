@@ -9,53 +9,63 @@
 <body>
 <!-- First run / settings -->
 <div id="view-setup" class="view">
-  <h1>RomM for Desktop</h1>
-  <p class="lede">Play your own <b>RomM</b> retro game library on this PC
-    with the controller. RomM is self-hosted software you run yourself — this
-    app is a client for it and stores nothing of its own.</p>
-  <dl class="kv">
-    <dt>RomM server</dt><dd id="setup-server">not set</dd>
-    <dt>Stream server</dt><dd id="setup-stream">none (optional)</dd>
-  </dl>
-  <div id="setup-options"></div>
-  <p id="setup-status" class="status"></p>
-  <p class="hint dim">D-pad to move · A to choose · X for diagnostics ·
-    no RomM server yet? Set one up at <b>romm.app</b></p>
+  <div class="card">
+    <div class="brandmark">
+      <div class="logo">R</div>
+      <div class="wordmark">RomM <span class="accent">Desktop</span></div>
+    </div>
+    <p class="lede">Play your self-hosted <b>RomM</b> library right here — the
+      emulation runs on this PC, not on any server. Point it at your RomM and
+      pick a game.</p>
+    <div id="setup-options"></div>
+    <dl class="kv">
+      <dt>RomM server</dt><dd id="setup-server">not set</dd>
+      <dt>Stream server</dt><dd id="setup-stream">none (optional)</dd>
+    </dl>
+    <p id="setup-status" class="status"></p>
+    <p class="hint dim">No RomM server yet? Set one up at <b>romm.app</b> ·
+      press <b>X</b> for diagnostics.</p>
+  </div>
 </div>
 
 <!-- Diagnostics. Exists so a tester can report facts rather than "it did not
      work": which build, whether the native host is live, and what the last
      failure actually was. -->
 <div id="view-diag" class="view hidden">
-  <h1>Diagnostics</h1>
-  <p class="lede">Read this out or photograph it when reporting a problem.</p>
-  <dl class="kv" id="diag-kv"></dl>
-  <p id="diag-status" class="status"></p>
-  <p class="hint dim">A to re-test · B to go back</p>
+  <div class="card">
+    <h1>Diagnostics</h1>
+    <p class="lede">Read this out or photograph it when reporting a problem.</p>
+    <dl class="kv" id="diag-kv"></dl>
+    <p id="diag-status" class="status"></p>
+    <p class="hint dim">A to re-test · B to go back</p>
+  </div>
 </div>
 
 <!-- Sign in -->
 <div id="view-auth" class="view hidden">
-  <h1>Sign in</h1>
-  <p class="lede">Connecting to <b id="auth-server"></b></p>
-  <div id="auth-tabs" class="tabs"></div>
+  <div class="card">
+    <div class="brandmark">
+      <div class="logo">R</div>
+      <div class="wordmark">Sign in</div>
+    </div>
+    <p class="lede">Connecting to <b id="auth-server"></b></p>
+    <div id="auth-tabs" class="tabs"></div>
 
-  <div id="auth-pair">
-    <p class="hint">In RomM on a phone or PC: <b>Settings → Client API
-      Tokens → Add</b>, choose <b>Pair</b>, then type the eight-digit code
-      here.</p>
-    <div id="pair-code"></div>
-    <div id="pair-pad"></div>
+    <div id="auth-pair">
+      <p class="hint">In RomM on a phone or PC: <b>Settings → Client API
+        Tokens → Add</b>, choose <b>Pair</b>, then enter the eight-digit code.</p>
+      <div id="pair-code"></div>
+      <div id="pair-pad"></div>
+    </div>
+
+    <div id="auth-creds" class="hidden">
+      <p class="hint">Sign in with your RomM account username and password.</p>
+      <div class="cta">Enter username &amp; password</div>
+    </div>
+
+    <p id="auth-status" class="status"></p>
+    <p class="hint dim">LB/RB switch method · A press · X delete · Y back</p>
   </div>
-
-  <div id="auth-creds" class="hidden">
-    <p class="hint">Sign in with the username and password of your RomM
-      account. Press <b>A</b> to start typing.</p>
-    <div class="cta">A — enter username &amp; password</div>
-  </div>
-
-  <p id="auth-status" class="status"></p>
-  <p class="hint dim">LB/RB switch method · A press · X delete · Y back</p>
 </div>
 
 <!-- On-screen keyboard (overlay) -->
@@ -73,14 +83,16 @@
 
 <!-- Library -->
 <div id="view-library" class="view hidden">
-  <header>
-    <span id="lib-title">Library</span>
-    <span id="lib-count" class="dim"></span>
-    <span class="dim right">LB/RB platform · A play · X refresh · Y settings</span>
-  </header>
   <nav id="platform-rail"></nav>
-  <main id="game-grid"></main>
-  <p id="lib-status" class="status"></p>
+  <div id="lib-main">
+    <header>
+      <span id="lib-title">Library</span>
+      <span id="lib-count" class="dim"></span>
+      <span class="keyshints">LB/RB platform · A play · X refresh · Y settings</span>
+    </header>
+    <main id="game-grid"></main>
+    <p id="lib-status" class="status"></p>
+  </div>
 </div>
 
 <!-- Local play (EmulatorJS, served by your RomM) -->
