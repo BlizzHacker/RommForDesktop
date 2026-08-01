@@ -1,8 +1,16 @@
-// Exposes the native local-emulation bridge to the renderer. The web client
-// checks window.RommNative to decide whether heavy platforms are playable
-// (bundled RetroArch) in addition to the in-webview EmulatorJS.
+// Preload bridge. Two roles:
+//  * cartridge.*  — the first-run setup page reads/writes the server config and
+//    asks the shell to authenticate and open RomM's /console.
+//  * RommNative.* — legacy native-RetroArch bridge, kept for any build that still
+//    uses the bundled-emulator path. /console does its own emulation in-webview,
+//    so it simply ignores these.
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('cartridge', {
+  getCfg: () => ipcRenderer.invoke('cfg:get'),
+  saveCfg: (cfg) => ipcRenderer.invoke('cfg:save', cfg),
+});
 
 contextBridge.exposeInMainWorld('RommNative', {
   platform: process.platform,

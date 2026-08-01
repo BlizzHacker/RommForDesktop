@@ -38,6 +38,54 @@ function corePath(coreFile) {
   return path.join(retroarchDir(), 'cores', coreFile);
 }
 
+// Server + credentials. Cartridge loads RomM's own /console TV UI, which runs
+// EmulatorJS in this Chromium renderer — so every system, including N64/PS1,
+// plays locally with no stream server involved. We authenticate by calling
+// RomM's login API and injecting the session cookie before loading /console, so
+// the user lands straight on the console instead of a login form.
+const CFG_PATH = path.join(app.getPath('userData'), 'config.json');
+function loadCfg() {
+  try { return JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')); } catch { return {}; }
+}
+function saveCfg(c) { try { fs.writeFileSync(CFG_PATH, JSON.stringify(c, null, 2)); } catch {} }
+
+// POST /api/login with Basic auth; returns the Set-Cookie session value.
+function rommLogin(base, user, pass) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(base + '/api/login');
+    const mod = u.protocol === 'https:' ? https : http;
+    const auth = 'Basic ' + Buffer.from(user + ':' + pass).toString('base64');
+    const req = mod.request(u, { method: 'POST', headers: { Authorization: auth } }, res => {
+      const cookies = res.headers['set-cookie'] || [];
+      res.resume();
+      const sess = cookies.map(c => c.split(';')[0]).find(c => c.startsWith('romm_session='));
+      if (sess) resolve(sess.split('=').slice(1).join('='));
+      else reject(new Error('no session cookie (HTTP ' + res.statusCode + ')'));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function authAndLoad(win, cfg) {
+  const base = (cfg.server || 'https://romm.moveweight.com').replace(/\/$/, '');
+  const consoleUrl = base + '/console';
+  try {
+    if (cfg.user && cfg.pass) {
+      const token = await rommLogin(base, cfg.user, cfg.pass);
+      const u = new URL(base);
+      await win.webContents.session.cookies.set({
+        url: base, name: 'romm_session', value: token,
+        domain: u.hostname, path: '/', secure: u.protocol === 'https:',
+        httpOnly: true,
+      });
+    }
+  } catch (e) {
+    // fall through — /console will show its own login form if the cookie didn't take
+  }
+  win.loadURL(consoleUrl);
+}
+
 let win;
 function createWindow() {
   win = new BrowserWindow({
@@ -51,8 +99,23 @@ function createWindow() {
       webgl: true, backgroundThrottling: false,
     },
   });
-  win.loadFile(path.join(__dirname, 'app', 'index.html'));
+  const cfg = loadCfg();
+  if (cfg.server) {
+    authAndLoad(win, cfg);
+  } else {
+    // First run: a tiny setup page collects the server + credentials, then
+    // reloads into /console. Kept local so it works before we can reach RomM.
+    win.loadFile(path.join(__dirname, 'app', 'setup.html'));
+  }
 }
+
+// Setup page saves config then asks us to (re)auth and load the console.
+ipcMain.handle('cfg:save', async (_e, cfg) => {
+  saveCfg(cfg);
+  await authAndLoad(win, cfg);
+  return true;
+});
+ipcMain.handle('cfg:get', () => loadCfg());
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
