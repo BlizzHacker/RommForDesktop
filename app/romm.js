@@ -1,0 +1,249 @@
+/* RomM API client, bound to whatever server the user configured.
+ *
+ * Cross-origin is fine: RomM answers every request with
+ * `access-control-allow-origin: <request origin>` and
+ * `access-control-allow-credentials: true`, so a Bearer token works from any
+ * origin — including a packaged app. Nothing here needs a reverse proxy.
+ *
+ * Everything the app plays comes from the user's own server: ROM bytes,
+ * EmulatorJS itself (RomM serves it at /assets/emulatorjs/data/), covers and
+ * save states. */
+'use strict';
+
+const ROMM = (() => {
+  // Every server URL in this file derives from base(), including the ones handed
+  // to the browser as <img src> and to EmulatorJS as EJS_pathtodata — so routing
+  // for the packaged shell happens in exactly one place. In a browser this is
+  // just CFG.server. See HOST.route for why the shell needs it.
+  const base = () => HOST.route(CFG.server);
+
+  class AuthError extends Error {}
+  class NetError extends Error {}
+
+  // RomM's own scope names. There is no states.* scope — save states are
+  // assets, and asking for a scope that does not exist fails the whole grant
+  // with "Insufficient scope" rather than just dropping the unknown one.
+  const SCOPES = [
+    'me.read', 'roms.read', 'platforms.read', 'assets.read', 'devices.read',
+    'firmware.read', 'roms.user.read', 'collections.read', 'assets.write',
+  ].join(' ');
+
+  // RomM hands back paths containing raw spaces (cover URLs carry a ?ts=
+  // stamp, state download paths a ?timestamp=). encodeURI is exactly right
+  // here: it fixes the spaces and leaves the ':' and '+' the server accepts.
+  const encodePath = p => encodeURI('/' + String(p || '').replace(/^\/+/, ''));
+
+  async function req(path, opts = {}, retried = false) {
+    const server = base();
+    if (!server) throw new NetError('No server configured');
+    if (CFG.mixedContentBlocked(server)) throw new NetError('mixed-content');
+    let r;
+    try {
+      r = await fetch(server + path, {
+        ...opts,
+        headers: {
+          ...(CFG.token ? { Authorization: 'Bearer ' + CFG.token } : {}),
+          ...(opts.headers || {}),
+        },
+      });
+    } catch (e) {
+      throw new NetError(e.message || 'network');
+    }
+    // The native host answers 502 with X-Proxy-Error when it could not reach the
+    // server on the page's behalf. Surfacing it turns "Failed to fetch" into
+    // something a tester can actually report.
+    if (r.status === 502) {
+      const why = r.headers.get('x-proxy-error');
+      if (why) throw new NetError('host could not reach the server: ' + why);
+    }
+    if (r.status === 401 || r.status === 403) {
+      // A 30-minute access token will expire mid-session; refresh once and
+      // replay before making the user sign in again.
+      if (!retried && await refreshAccess()) return req(path, opts, true);
+      throw new AuthError('auth');
+    }
+    if (!r.ok) throw new NetError('HTTP ' + r.status);
+    return r;
+  }
+
+  async function refreshAccess() {
+    if (CFG.mode !== 'password' || !CFG.refresh) return false;
+    try {
+      const r = await fetch(base() + '/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token', refresh_token: CFG.refresh,
+        }),
+      });
+      if (!r.ok) return false;
+      const j = await r.json();
+      if (!j.access_token) return false;
+      CFG.token = j.access_token;
+      if (j.refresh_token) CFG.refresh = j.refresh_token;
+      return true;
+    } catch (_) { return false; }
+  }
+
+  const json = async (path, opts) => (await req(path, opts)).json();
+
+  /* ---------------------------------------------------------------- auth */
+
+  // Unauthenticated: probes that a URL really is a RomM server before we
+  // store it, and tells the setup screen which sign-in routes exist.
+  async function probe(server) {
+    if (CFG.mixedContentBlocked(server)) throw new NetError('mixed-content');
+    let r;
+    try {
+      r = await fetch(HOST.route(server) + '/api/heartbeat', { method: 'GET' });
+    } catch (e) {
+      throw new NetError(e.message || 'network');
+    }
+    if (!r.ok) throw new NetError('HTTP ' + r.status);
+    const j = await r.json().catch(() => null);
+    if (!j || !j.SYSTEM || !j.SYSTEM.VERSION) throw new NetError('not-romm');
+    return { version: j.SYSTEM.VERSION };
+  }
+
+  // Tries each candidate in turn and returns the first that really is a RomM,
+  // so the user can type "192.168.1.42" and not care about the scheme. The last
+  // error is kept: if nothing answers, that one describes the likeliest attempt.
+  async function probeAny(list, onTry, onFail) {
+    let last = new NetError('network');
+    for (const server of list || []) {
+      if (onTry) onTry(server);
+      try {
+        const { version } = await probe(server);
+        return { server, version };
+      } catch (e) {
+        last = e;
+        if (onFail) onFail(server, e);
+        // A server that answered but is not RomM is a definite answer; trying
+        // the same host on another scheme will not change it.
+        if (e instanceof NetError && e.message === 'not-romm') throw e;
+      }
+    }
+    throw last;
+  }
+
+  // Pairing: RomM mints an eight-digit code for a scoped client token, so the
+  // app never handles the account password.
+  async function exchangePairCode(code) {
+    const r = await fetch(base() + '/api/client-tokens/exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }).catch(e => { throw new NetError(e.message || 'network'); });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.raw_token) throw new AuthError('pair-failed');
+    return j.raw_token;
+  }
+
+  // Direct sign-in, for anyone who cannot reach RomM's web UI to make a code
+  // (a controller-only console, or a reviewer with just an account).
+  async function signIn(username, password) {
+    // Sending no scope is not a shortcut: the grant then carries an empty
+    // scope set and every library call comes back 403.
+    const body = new URLSearchParams({
+      grant_type: 'password', username, password, scope: SCOPES,
+    });
+    const r = await fetch(base() + '/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    }).catch(e => { throw new NetError(e.message || 'network'); });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) throw new AuthError(j.detail || 'signin-failed');
+    return { token: j.access_token, refresh: j.refresh_token || '' };
+  }
+
+  /* ------------------------------------------------------------- library */
+
+  const platforms = () => json('/api/platforms');
+
+  function roms(platformId, limit = 500) {
+    // with_char_index / with_filter_values default to true and aggregate over
+    // the whole roms table; on a large library that alone costs tens of
+    // seconds and nothing here reads either field.
+    const q = new URLSearchParams({
+      platform_ids: platformId, limit, order_by: 'name', order_dir: 'asc',
+      with_char_index: 'false', with_filter_values: 'false',
+    });
+    return json('/api/roms?' + q);
+  }
+
+  // Covers are served without auth, so they can go straight into an <img src>.
+  const coverUrl = rom => {
+    const p = rom.path_cover_small || rom.path_cover_large;
+    return p ? base() + encodePath(p) : '';
+  };
+
+  /* ---------------------------------------------------------------- play */
+
+  const emulatorJsData = () => base() + '/assets/emulatorjs/data/';
+
+  // EmulatorJS fetches the ROM by URL and cannot attach an Authorization
+  // header, so pull the bytes here and hand it a blob: URL instead.
+  async function romBlobUrl(rom, onProgress) {
+    const name = rom.fs_name || rom.file_name;
+    const r = await req(`/api/roms/${rom.id}/content/${encodeURIComponent(name)}`);
+    const total = Number(r.headers.get('content-length')) || 0;
+    if (!r.body || !onProgress) return URL.createObjectURL(await r.blob());
+    const chunks = [];
+    let got = 0;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      onProgress(got, total);
+    }
+    return URL.createObjectURL(new Blob(chunks));
+  }
+
+  /* -------------------------------------------------------- save states */
+
+  const states = romId => json('/api/states?rom_id=' + romId);
+
+  async function putState(romId, existingId, bytes, emulator) {
+    const fd = new FormData();
+    fd.append('stateFile', new Blob([bytes]),
+      (emulator || 'state') + '.state');
+    if (existingId) {
+      await req('/api/states/' + existingId, { method: 'PUT', body: fd });
+      return existingId;
+    }
+    const q = new URLSearchParams({ rom_id: romId });
+    if (emulator) q.set('emulator', emulator);
+    const j = await json('/api/states?' + q, { method: 'POST', body: fd });
+    return j.id;
+  }
+
+  // download_path is server-relative and needs the Bearer token, so fetch it
+  // here and give EmulatorJS a blob: URL to load from.
+  async function stateBlobUrl(state) {
+    const r = await req(encodePath(state.download_path));
+    return URL.createObjectURL(await r.blob());
+  }
+
+  /* -------------------------------------------- native (desktop) download */
+  // The native RetroArch path downloads via the Electron main process (which
+  // can stream a multi-GB ISO straight to disk), so it needs the raw URL and
+  // auth headers rather than a blob: URL.
+  function romDownloadUrl(rom) {
+    const name = rom.fs_name || rom.file_name;
+    return base() + `/api/roms/${rom.id}/content/${encodeURIComponent(name)}`;
+  }
+  function authHeaders() {
+    return CFG.token ? { Authorization: 'Bearer ' + CFG.token } : {};
+  }
+
+  return {
+    AuthError, NetError, SCOPES,
+    probe, probeAny, exchangePairCode, signIn, refreshAccess,
+    platforms, roms, coverUrl,
+    emulatorJsData, romBlobUrl, romDownloadUrl, authHeaders,
+    states, putState, stateBlobUrl,
+  };
+})();

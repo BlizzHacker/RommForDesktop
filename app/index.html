@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RomM for Desktop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- First run / settings -->
+<div id="view-setup" class="view">
+  <h1>RomM for Desktop</h1>
+  <p class="lede">Play your own <b>RomM</b> retro game library on this PC
+    with the controller. RomM is self-hosted software you run yourself — this
+    app is a client for it and stores nothing of its own.</p>
+  <dl class="kv">
+    <dt>RomM server</dt><dd id="setup-server">not set</dd>
+    <dt>Stream server</dt><dd id="setup-stream">none (optional)</dd>
+  </dl>
+  <div id="setup-options"></div>
+  <p id="setup-status" class="status"></p>
+  <p class="hint dim">D-pad to move · A to choose · X for diagnostics ·
+    no RomM server yet? Set one up at <b>romm.app</b></p>
+</div>
+
+<!-- Diagnostics. Exists so a tester can report facts rather than "it did not
+     work": which build, whether the native host is live, and what the last
+     failure actually was. -->
+<div id="view-diag" class="view hidden">
+  <h1>Diagnostics</h1>
+  <p class="lede">Read this out or photograph it when reporting a problem.</p>
+  <dl class="kv" id="diag-kv"></dl>
+  <p id="diag-status" class="status"></p>
+  <p class="hint dim">A to re-test · B to go back</p>
+</div>
+
+<!-- Sign in -->
+<div id="view-auth" class="view hidden">
+  <h1>Sign in</h1>
+  <p class="lede">Connecting to <b id="auth-server"></b></p>
+  <div id="auth-tabs" class="tabs"></div>
+
+  <div id="auth-pair">
+    <p class="hint">In RomM on a phone or PC: <b>Settings → Client API
+      Tokens → Add</b>, choose <b>Pair</b>, then type the eight-digit code
+      here.</p>
+    <div id="pair-code"></div>
+    <div id="pair-pad"></div>
+  </div>
+
+  <div id="auth-creds" class="hidden">
+    <p class="hint">Sign in with the username and password of your RomM
+      account. Press <b>A</b> to start typing.</p>
+    <div class="cta">A — enter username &amp; password</div>
+  </div>
+
+  <p id="auth-status" class="status"></p>
+  <p class="hint dim">LB/RB switch method · A press · X delete · Y back</p>
+</div>
+
+<!-- On-screen keyboard (overlay) -->
+<div id="view-osk" class="view hidden">
+  <h2 id="osk-title"></h2>
+  <div id="osk-value"></div>
+  <div id="osk-keys"></div>
+  <p id="osk-status" class="status"></p>
+  <!-- Every step of a connection attempt, on the screen where it happens. A
+       status line alone could not distinguish "still trying" from "silently gave
+       up", which is exactly how a 12-second wait read as nothing happening. -->
+  <ol id="osk-log" class="log hidden"></ol>
+  <p id="osk-hint" class="hint dim"></p>
+</div>
+
+<!-- Library -->
+<div id="view-library" class="view hidden">
+  <header>
+    <span id="lib-title">Library</span>
+    <span id="lib-count" class="dim"></span>
+    <span class="dim right">LB/RB platform · A play · X refresh · Y settings</span>
+  </header>
+  <nav id="platform-rail"></nav>
+  <main id="game-grid"></main>
+  <p id="lib-status" class="status"></p>
+</div>
+
+<!-- Local play (EmulatorJS, served by your RomM) -->
+<div id="view-local" class="view hidden">
+  <div id="game"></div>
+  <div id="local-overlay" class="overlay hidden">
+    <p id="local-msg"></p>
+  </div>
+</div>
+
+<!-- Stream play (WebRTC, optional stream server) -->
+<div id="view-stream" class="view hidden">
+  <video id="stream-video" autoplay playsinline></video>
+  <div id="stream-overlay" class="overlay hidden">
+    <p id="stream-msg"></p>
+  </div>
+  <div id="quit-hint" class="hidden">Hold <b>Menu + View</b> to quit</div>
+</div>
+
+<script src="config.js"></script>
+<script src="gamepad.js"></script>
+<script src="host-bridge.js"></script>
+<script src="osk.js"></script>
+<script src="rtc.js"></script>
+<script src="romm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
