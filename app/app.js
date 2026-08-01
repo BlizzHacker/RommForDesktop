@@ -311,7 +311,7 @@ function noteFailure(what, e) {
 async function renderDiag(status) {
   const rows = [
     ['Build', BUILD],
-    ['Running in', HOST.present ? 'Xbox app (native host)' : 'browser'],
+    ['Running in', HOST.present ? 'Desktop app (local emulation)' : 'browser'],
     ['Controller', GP.usingHost ? 'via native host'
       : ((navigator.getGamepads ? [...navigator.getGamepads()] : [])
           .filter(Boolean).length ? 'via Gamepad API' : 'not detected')],
@@ -529,7 +529,7 @@ async function enterLibrary() {
       $('lib-status').textContent = all.length
         ? (hiddenGames
             ? `${hiddenGames} games need a stream server — add one in Settings (Y).`
-            : 'None of your platforms can run on an Xbox.')
+            : 'None of your platforms can run yet — add a stream server for heavy consoles.')
         : 'That RomM has no platforms with games in it yet.';
       $('lib-title').textContent = 'Library';
       $('game-grid').innerHTML = '';
@@ -587,7 +587,7 @@ function footnote() {
       `platform${hiddenPlatforms === 1 ? '' : 's'} need a stream server (Y)`);
   }
   if (impossibleGames) {
-    bits.push(`${impossibleGames} cannot run on an Xbox at all`);
+    bits.push(`${impossibleGames} have no emulator anywhere`);
   }
   return bits.join(' · ');
 }
