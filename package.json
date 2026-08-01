@@ -16,9 +16,12 @@
   },
   "build": {
     "appId": "com.moveweight.rommdesktop",
-    "productName": "RomM for Desktop",
+    "productName": "RomM",
     "directories": {
       "output": "dist"
+    },
+    "win": {
+      "icon": "build/icon.ico"
     },
     "files": [
       "main.js",
