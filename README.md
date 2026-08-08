@@ -20,8 +20,6 @@ MoveWeight
 
 
 
-A project of the [Move Weight Foundation](https://foundation.moveweight.com).
-
 Play your self-hosted [RomM](https://github.com/rommapp/romm) retro library on
 Windows — **the emulation runs locally on your PC, not on any cloud server.**
 
