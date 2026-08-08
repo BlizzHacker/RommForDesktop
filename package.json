@@ -8,7 +8,7 @@
     "dist": "electron-builder --win nsis",
     "dist:dir": "electron-builder --win --dir"
   },
-  "author": "Move Weight Foundation",
+  "author": "MoveWeight",
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.4.11",
