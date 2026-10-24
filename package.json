@@ -1,53 +1,63 @@
 {
   "name": "romm-for-desktop",
-  "version": "0.1.0",
-  "description": "Cartridge \u2014 RomM for Windows. Play your self-hosted RomM library locally: EmulatorJS + bundled RetroArch, no cloud server does the emulation. Unofficial; not affiliated with the RomM project.",
+  "version": "0.2.0",
+  "description": "Cartridge for Windows: a standalone desktop companion for your self-hosted RomM library. Unofficial; not affiliated with RomM.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis",
+    "test": "node --test tests/*.test.js",
+    "dist": "node scripts/build-windows.mjs",
     "dist:dir": "electron-builder --win --dir"
   },
   "author": "MoveWeight",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.4.11",
-    "electron-builder": "^25.1.8"
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "com.moveweight.rommdesktop",
-    "productName": "Cartridge",
+    "productName": "Cartridge for Windows",
     "directories": {
       "output": "dist"
     },
     "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico"
     },
     "files": [
       "main.js",
       "preload.js",
-      "app/**/*"
+      "lib/**/*",
+      "app/**/*",
+      "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "native/retroarch",
-        "to": "retroarch",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "artifactName": "RommForDesktop-Setup-${version}.${ext}",
-      "icon": "build/icon.ico"
-    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.ico"
+      "installerIcon": "build/icon.ico",
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "artifactName": "Cartridge-Windows-Setup-${version}-${arch}.${ext}"
+    },
+    "executableName": "Cartridge",
+    "publish": null,
+    "portable": {
+      "artifactName": "Cartridge-Windows-Portable-${version}-${arch}.${ext}"
     }
   }
 }

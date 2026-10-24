@@ -1,69 +1,89 @@
-# RomM for Desktop
+# Cartridge for Windows
 
-<table><tr><td>
+A standalone desktop companion for your own [RomM](https://romm.app) server.
+Open your library and play through RomM's console inside the app. You do not
+need to install Python, Node.js, or a browser extension.
 
-**Part of [Cartridge](https://github.com/BlizzHacker/rom-hub/blob/master/BRAND.md) by MoveWeight** — a self-hosted retro-gaming ecosystem. Run the whole stack, not just this piece:
+Cartridge is part of the [MoveWeight ecosystem](https://github.com/BlizzHacker/rom-hub/blob/master/BRAND.md).
+[ROMarr](https://github.com/BlizzHacker/romarr) finds and organizes games;
+Cartridge opens the RomM library where you play them. Both are optional parts
+of your setup. This community client is not affiliated with or endorsed by RomM.
 
+## Install
+
+Requires Windows 10 or 11, 64-bit, and a reachable RomM server that supports
+its `/console` interface.
+
+1. Open [Releases](https://github.com/BlizzHacker/RommForDesktop/releases).
+2. Download `Cartridge-Windows-Portable-<version>-x64.exe` to run without an
+   installer, or `Cartridge-Windows-Setup-<version>-x64.exe` for a per-user install.
+3. Run the app and enter **your own** RomM address, such as
+   `https://romm.example.com`. Sign in with your RomM username and password,
+   or leave them blank and use RomM's own sign-in screen.
+
+The app has its own window; it does not open an external browser. Use
+**Cartridge > Change RomM server** or **Ctrl+,** to return to setup. Press Alt
+if the menu bar is hidden.
+
+Builds are unsigned community releases. Microsoft Store submission and code
+signing have not been completed. Pull requests also produce downloadable
+Windows artifacts and smoke-test evidence under their Actions run.
+
+## What plays
+
+This release displays **your RomM server's console**, including its EmulatorJS
+player. Emulation runs on your PC when that player supports the platform and
+ROM format. It does not guarantee every system, core, archive or game will boot.
+
+RetroArch is **not included** in the standard release. Missing optional native
+resources do not prevent building or using the app. The older local-player and
+streaming source files remain for development, but are not the active `/console`
+experience. No pairing, streaming or heavy-platform guarantee is made by this build.
+
+## Privacy and saved data
+
+Cartridge stores the server address and username in
+`%APPDATA%\Cartridge\config.json`. Passwords are used only for the immediate
+sign-in and are never saved by Cartridge. Opening configuration from an older
+release removes its previously saved plaintext password. RomM still manages its
+own session cookies in Electron's profile.
+
+Use HTTPS outside your trusted network. HTTP is supported for local servers.
+Remote pages cannot access the app's configuration or native IPC actions;
+popups and navigation outside the configured server are blocked.
+
+Uninstalling or replacing the app preserves its profile. Removing
+`%APPDATA%\Cartridge` resets the client and its local cookies/cache; it does not
+remove anything from your RomM server.
+
+## Build and prove it
+
+Use Node.js 24 on Windows:
+
+```powershell
+npm ci
+npm test
+npm run dist
 ```
-MoveWeight
-└── Cartridge                                  play + acquire your library
-    ├── ROMarr  ─────────────  request a game, it finds / grabs / files it
-    │   └── ROM Hub + plugins   backend-agnostic sources (RomM/Gaseous/Retrom)
-    └── Apps                    Desktop · Xbox · Roku · Stream server
-```
 
-**Acquire:** [ROMarr](https://github.com/BlizzHacker/romarr) · [ROM Hub](https://github.com/BlizzHacker/rom-hub) — **Play:** [Desktop](https://github.com/BlizzHacker/RommForDesktop) · [Xbox](https://github.com/BlizzHacker/RommForXbox) · [Roku](https://github.com/BlizzHacker/RommForRoku) · [Stream](https://github.com/BlizzHacker/RommStreamServer)
+The build produces both the portable executable and NSIS installer under
+`dist/`. `com.moveweight.rommdesktop` remains the application ID, and the
+existing `Cartridge` profile location is preserved.
 
-<sub>Unofficial; not affiliated with or endorsed by RomM, Gaseous or Retrom.</sub>
+The Windows Actions workflow tests URL/path validation, privileged IPC sender
+checks, password migration and persistence behavior. It then launches both the
+packaged app and portable executable against a local mock RomM console and
+checks that remote pages cannot use privileged IPC. It saves a setup screenshot
+and JSON proof report alongside the executable artifacts. Tagging `v*` publishes
+the executables only after those checks pass.
 
-</td></tr></table>
+For development builds that need the legacy native bridge, fetch your own
+RetroArch runtime into `native/retroarch/` before building. The build includes
+it only when `retroarch.exe` exists there. Console firmware and ROMs are never
+provided by Cartridge.
 
+## Other devices
 
-
-Play your self-hosted [RomM](https://github.com/rommapp/romm) retro library on
-Windows — **the emulation runs locally on your PC, not on any cloud server.**
-
-## How it plays
-
-| Systems | Engine | Where the work happens |
-|---|---|---|
-| NES, SNES, N64, GB/GBC/GBA, NDS, Genesis, SMS/GG, 32X, Sega CD, PSX, PSP, Arcade, Atari, Lynx, Jaguar, 3DO, PCE, WonderSwan, C64, Amiga, DOS… | **EmulatorJS** (in-app) | Your PC (the app's own engine) |
-| GameCube, Wii, Dreamcast, PS2, Saturn, 3DS, N64/PSX/PSP hi-fidelity | **bundled RetroArch** | Your PC (native libretro cores) |
-| Anything with no local core | stream (optional) | Your RomM stream server |
-
-The app points at **your** RomM server, pairs or signs in, downloads the ROM to
-a local cache, and emulates it on this machine. No Move Weight server is in the
-play path.
-
-## Run it
-
-Portable — no installer, no admin:
-
-1. Download `RommForDesktop-Windows-Portable.zip` and unzip anywhere.
-2. Run `RommForDesktop.exe`.
-3. Enter your RomM server address, sign in (pair or password), pick a game.
-
-## Sign in
-
-RomM 4.9 client-token **pairing** (preferred — the app only holds a scoped,
-revocable token, never your password), or username/password.
-
-## Build from source
-
-```
-npm install
-node scripts/package-portable.mjs   # -> dist-manual/RommForDesktop/ + .zip
-```
-
-`native/retroarch/` (the RetroArch runtime + `cores/*.dll`) is gitignored for
-size; fetch it with `scripts/fetch-retroarch.sh` before packaging, or the heavy
-platforms fall back to streaming.
-
-## Other platforms
-
-- **Android** — RetroArch is native on Android; a Capacitor build with a
-  libretro plugin is planned (phase 2).
-- **Xbox** — retail consoles cannot run native RetroArch (locked platform);
-  only Dev Mode can. Retail Xbox and Roku use the stream fallback
-  ([RommStreamServer](https://github.com/BlizzHacker/RommStreamServer)) so every
-  device gets the library regardless of its limits.
+[Xbox](https://github.com/BlizzHacker/RommForXbox) and
+[Roku](https://github.com/BlizzHacker/RommForRoku) have separate companion apps.
+Their installation and playback limits differ from this Windows client.

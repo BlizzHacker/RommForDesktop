@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Cartridge</title>
+<title>Cartridge for Windows</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
 <style>
   :root{ --bg:#0A0E1A; --surface:#141B2E; --line:#2A3757; --ink:#E9F5FF;
     --dim:#9FB3D9; --accent:#7DD3FC; }
@@ -38,11 +39,11 @@
       <h1>Cart<span class="a">ridge</span></h1>
     </div>
     <p class="lede">Connect to your self-hosted <b>RomM</b> server. Cartridge opens
-      RomM's console and plays your library right here — every system, including
-      Nintendo 64 and PlayStation, runs locally in this app.</p>
+      its console in this app. Supported games use this PC; compatibility
+      depends on your server, ROM format and emulator core.</p>
 
     <label for="server">RomM server</label>
-    <input id="server" placeholder="https://romm.moveweight.com" autocomplete="off">
+    <input id="server" placeholder="https://romm.example.com" autocomplete="off">
     <label for="user">Username</label>
     <input id="user" placeholder="your RomM username" autocomplete="off">
     <label for="pass">Password</label>
@@ -50,27 +51,10 @@
 
     <button id="go">Open Console</button>
     <p class="status" id="status"></p>
-    <p class="foot">Cartridge is an unofficial client and is not affiliated with
+    <p class="foot">Your password is used only to sign in and is never saved by Cartridge. Use HTTPS when connecting outside your trusted network.<br>Cartridge is an unofficial client and is not affiliated with
       or endorsed by the RomM project.</p>
   </div>
 </div>
-<script>
-  const $ = id => document.getElementById(id);
-  (async () => {
-    const cfg = await window.cartridge.getCfg();
-    if (cfg.server) $('server').value = cfg.server;
-    if (cfg.user) $('user').value = cfg.user;
-  })();
-  $('go').addEventListener('click', async () => {
-    let server = $('server').value.trim() || 'https://romm.moveweight.com';
-    if (!/^https?:\/\//.test(server)) server = 'https://' + server;
-    $('status').textContent = 'Connecting…';
-    await window.cartridge.saveCfg({
-      server, user: $('user').value.trim(), pass: $('pass').value,
-    });
-  });
-  ['server', 'user', 'pass'].forEach(id =>
-    $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('go').click(); }));
-</script>
+<script src="setup.js"></script>
 </body>
 </html>

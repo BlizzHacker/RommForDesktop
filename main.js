@@ -1,172 +1,180 @@
-// RomM for Desktop — Electron shell that plays your RomM library LOCALLY.
-//
-// Two local engines, no cloud server does the emulation:
-//   * EmulatorJS runs inside this Electron renderer (Chromium) for the systems
-//     WASM handles well (NES..PSX/PSP-class). The ROM is downloaded from your
-//     RomM server and emulated on THIS machine.
-//   * Bundled RetroArch (native, in resources/retroarch/) is launched as a
-//     child process for heavy 3D systems EmulatorJS can't do (GameCube, Wii,
-//     PS2, Saturn, 3DS). Same story — your CPU/GPU does the work.
-//
-// The renderer is the existing RommForXbox web client; the only addition is an
-// IPC bridge (preload.js) exposing native RetroArch launch + ROM caching.
-
+// Cartridge for Windows: isolated desktop access to your own RomM console.
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const os = require('node:os');
 const { spawn } = require('node:child_process');
+const { createHash, randomUUID } = require('node:crypto');
 const https = require('node:https');
 const http = require('node:http');
-
+const { serverUrl, isLocalPage, requireLocalSender, sameServer, childPath } = require('./lib/security');
+const config = require('./lib/config');
+const smokeArg = process.argv.find(arg => arg.startsWith('--smoke-test='));
+if (smokeArg) { const smokeRoot = path.resolve(smokeArg.slice('--smoke-test='.length)); fs.mkdirSync(smokeRoot, { recursive: true }); app.setPath('userData', smokeRoot); }
+else app.setPath('userData', path.join(app.getPath('appData'), 'Cartridge'));
 const ROM_CACHE = path.join(app.getPath('userData'), 'rom-cache');
-fs.mkdirSync(ROM_CACHE, { recursive: true });
-
-// Where the bundled RetroArch lives once packaged; falls back to a dev path.
+const CFG_PATH = path.join(app.getPath('userData'), 'config.json');
+const SETUP = path.join(__dirname, 'app', 'setup.html');
+const LEGACY = path.join(__dirname, 'app', 'index.html');
+let win, raProc = null, activeServer = '';
 function retroarchDir() {
   const packaged = path.join(process.resourcesPath || '', 'retroarch');
-  if (fs.existsSync(packaged)) return packaged;
-  return path.join(__dirname, 'native', 'retroarch');
+  return fs.existsSync(packaged) ? packaged : path.join(__dirname, 'native', 'retroarch');
 }
-function retroarchExe() {
-  const dir = retroarchDir();
-  const exe = process.platform === 'win32' ? 'retroarch.exe' : 'retroarch';
-  return path.join(dir, exe);
-}
-function corePath(coreFile) {
-  return path.join(retroarchDir(), 'cores', coreFile);
-}
-
-// Server + credentials. Cartridge loads RomM's own /console TV UI, which runs
-// EmulatorJS in this Chromium renderer — so every system, including N64/PS1,
-// plays locally with no stream server involved. We authenticate by calling
-// RomM's login API and injecting the session cookie before loading /console, so
-// the user lands straight on the console instead of a login form.
-const CFG_PATH = path.join(app.getPath('userData'), 'config.json');
-function loadCfg() {
-  try { return JSON.parse(fs.readFileSync(CFG_PATH, 'utf8')); } catch { return {}; }
-}
-function saveCfg(c) { try { fs.writeFileSync(CFG_PATH, JSON.stringify(c, null, 2)); } catch {} }
-
-// POST /api/login with Basic auth; returns the Set-Cookie session value.
+function retroarchExe() { return path.join(retroarchDir(), process.platform === 'win32' ? 'retroarch.exe' : 'retroarch'); }
+function local(event, page = SETUP) { requireLocalSender(event, win, page); }
+function stopNative() { if (raProc) { raProc.kill(); raProc = null; } }
 function rommLogin(base, user, pass) {
   return new Promise((resolve, reject) => {
-    const u = new URL(base + '/api/login');
-    const mod = u.protocol === 'https:' ? https : http;
-    const auth = 'Basic ' + Buffer.from(user + ':' + pass).toString('base64');
-    const req = mod.request(u, { method: 'POST', headers: { Authorization: auth } }, res => {
-      const cookies = res.headers['set-cookie'] || [];
-      res.resume();
-      const sess = cookies.map(c => c.split(';')[0]).find(c => c.startsWith('romm_session='));
-      if (sess) resolve(sess.split('=').slice(1).join('='));
-      else reject(new Error('no session cookie (HTTP ' + res.statusCode + ')'));
+    const url = new URL(base + '/api/login');
+    const request = (url.protocol === 'https:' ? https : http).request(url, {
+      method: 'POST', timeout: 15000,
+      headers: { Authorization: 'Basic ' + Buffer.from(user + ':' + pass).toString('base64') },
+    }, response => {
+      const cookie = (response.headers['set-cookie'] || []).map(c => c.split(';')[0]).find(c => c.startsWith('romm_session='));
+      response.resume();
+      if (response.statusCode >= 200 && response.statusCode < 300 && cookie) resolve(cookie.slice('romm_session='.length));
+      else reject(new Error('RomM sign-in failed (HTTP ' + response.statusCode + '). Check your username and password.'));
     });
-    req.on('error', reject);
-    req.end();
+    request.on('timeout', () => request.destroy(new Error('RomM sign-in timed out.')));
+    request.on('error', reject); request.end();
   });
 }
-
-async function authAndLoad(win, cfg) {
-  const base = (cfg.server || 'https://romm.moveweight.com').replace(/\/$/, '');
-  const consoleUrl = base + '/console';
-  try {
-    if (cfg.user && cfg.pass) {
-      const token = await rommLogin(base, cfg.user, cfg.pass);
-      const u = new URL(base);
-      await win.webContents.session.cookies.set({
-        url: base, name: 'romm_session', value: token,
-        domain: u.hostname, path: '/', secure: u.protocol === 'https:',
-        httpOnly: true,
-      });
-    }
-  } catch (e) {
-    // fall through — /console will show its own login form if the cookie didn't take
+async function authAndLoad(cfg, password = '') {
+  const base = serverUrl(cfg.server);
+  if (cfg.user && password) {
+    const value = await rommLogin(base, cfg.user, password);
+    await win.webContents.session.cookies.set({ url: base, name: 'romm_session', value, path: '/', secure: new URL(base).protocol === 'https:', httpOnly: true });
   }
-  win.loadURL(consoleUrl);
+  activeServer = base;
+  await win.loadURL(base + '/console');
 }
-
-let win;
+function setup() { return win.loadFile(SETUP); }
 function createWindow() {
-  win = new BrowserWindow({
-    width: 1280, height: 800, backgroundColor: '#0B1020',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      // EmulatorJS + game canvas want these; safe in a single-purpose app.
-      webgl: true, backgroundThrottling: false,
-    },
+  win = new BrowserWindow({ width: 1280, height: 800, minWidth: 720, minHeight: 500,
+    title: 'Cartridge for Windows', backgroundColor: '#0B1020', autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true,
+      sandbox: true, nodeIntegration: false, webSecurity: true, webgl: true, backgroundThrottling: false },
   });
-  const cfg = loadCfg();
-  if (cfg.server) {
-    authAndLoad(win, cfg);
-  } else {
-    // First run: a tiny setup page collects the server + credentials, then
-    // reloads into /console. Kept local so it works before we can reach RomM.
-    win.loadFile(path.join(__dirname, 'app', 'setup.html'));
-  }
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  const guardNavigation = (event, url) => {
+    let cfg = {}; try { cfg = config.load(CFG_PATH); } catch { }
+    if (!isLocalPage(url, SETUP) && !sameServer(url, activeServer || cfg.server)) event.preventDefault();
+  };
+  win.webContents.on('will-navigate', guardNavigation);
+  win.webContents.on('will-redirect', guardNavigation);
+  win.webContents.on('will-attach-webview', event => event.preventDefault());
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Cartridge', submenu: [
+      { label: 'Change RomM server', accelerator: 'CmdOrCtrl+,', click: setup },
+      { type: 'separator' }, { role: 'quit' },
+    ] },
+    { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }, { role: 'resetzoom' }, { role: 'zoomin' }, { role: 'zoomout' }] },
+  ]));
+  let cfg;
+  try { cfg = config.load(CFG_PATH); }
+  catch (error) { dialog.showErrorBox('Cartridge configuration', error.message); setup(); return; }
+  if (cfg.server && !smokeArg) authAndLoad(cfg).catch(error => { dialog.showErrorBox('Could not open RomM', error.message); setup(); });
+  else setup();
 }
-
-// Setup page saves config then asks us to (re)auth and load the console.
-ipcMain.handle('cfg:save', async (_e, cfg) => {
-  saveCfg(cfg);
-  await authAndLoad(win, cfg);
+ipcMain.handle('cfg:get', event => { local(event); return config.load(CFG_PATH); });
+ipcMain.handle('cfg:save', async (event, cfg) => {
+  local(event);
+  const clean = config.sanitize(cfg);
+  if (!clean.server) throw new Error('Enter your own RomM server address.');
+  // The password is used for this sign-in only; it is never saved or returned.
+  await authAndLoad(clean, typeof cfg.pass === 'string' ? cfg.pass : '');
+  config.save(CFG_PATH, clean);
   return true;
 });
-ipcMain.handle('cfg:get', () => loadCfg());
-
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
-
-/* ---- IPC: native RetroArch availability ---- */
-ipcMain.handle('native:available', () => fs.existsSync(retroarchExe()));
-
-ipcMain.handle('native:cores', () => {
-  const dir = corePath('');
-  try { return fs.readdirSync(dir).filter(f => f.endsWith('.dll') || f.endsWith('.so') || f.endsWith('.dylib')); }
-  catch { return []; }
+ipcMain.handle('native:available', event => { local(event, LEGACY); return fs.existsSync(retroarchExe()); });
+ipcMain.handle('native:cores', event => {
+  local(event, LEGACY);
+  try { return fs.readdirSync(path.join(retroarchDir(), 'cores')).filter(f => /\.(dll|so|dylib)$/.test(f)); } catch { return []; }
 });
-
-/* ---- IPC: download a ROM from RomM to the local cache (streamed) ---- */
-ipcMain.handle('rom:cache', async (_e, { url, headers, name }) => {
-  const safe = name.replace(/[^\w.\- ()\[\]]/g, '_');
-  const dest = path.join(ROM_CACHE, safe);
-  if (fs.existsSync(dest) && fs.statSync(dest).size > 0) return dest;
-  await download(url, headers || {}, dest);
-  return dest;
+ipcMain.handle('rom:cache', async (event, { url, headers, name }) => {
+  local(event, LEGACY);
+  const cfg = config.load(CFG_PATH);
+  if (!sameServer(url, cfg.server)) throw new Error('ROM downloads must come from your configured RomM server.');
+  fs.mkdirSync(ROM_CACHE, { recursive: true });
+  const safe = String(name || '').replace(/[^\w.\- ()\[\]]/g, '_');
+  const file = createHash('sha256').update(url).digest('hex').slice(0, 16) + '-' + childPath(ROM_CACHE, safe).split(path.sep).pop();
+  const destination = childPath(ROM_CACHE, file);
+  if (fs.existsSync(destination) && fs.statSync(destination).size > 0) return destination;
+  await download(url, headers || {}, destination, cfg.server);
+  return destination;
 });
-
-/* ---- IPC: launch bundled RetroArch on a local ROM ---- */
-let raProc = null;
-ipcMain.handle('native:launch', (_e, { core, romPath, fullscreen }) => {
-  if (raProc) { try { raProc.kill(); } catch {} raProc = null; }
-  const exe = retroarchExe();
-  if (!fs.existsSync(exe)) return { ok: false, error: 'RetroArch not bundled in this build' };
-  const args = ['-L', corePath(core), romPath];
-  if (fullscreen !== false) args.push('--fullscreen');
-  raProc = spawn(exe, args, { cwd: retroarchDir(), detached: false });
-  raProc.on('exit', () => { raProc = null; });
-  return { ok: true };
+ipcMain.handle('native:launch', async (event, { core, romPath, fullscreen }) => {
+  local(event, LEGACY);
+  const coreFile = childPath(path.join(retroarchDir(), 'cores'), core);
+  if (!/\.(dll|so|dylib)$/.test(core) || !fs.existsSync(coreFile)) throw new Error('That bundled core is unavailable.');
+  if (path.dirname(path.resolve(romPath)) !== path.resolve(ROM_CACHE) || !fs.existsSync(romPath)) throw new Error('Choose a ROM from the app cache.');
+  if (!fs.existsSync(retroarchExe())) return { ok: false, error: 'This build does not include RetroArch.' };
+  stopNative();
+  const args = ['-L', coreFile, romPath]; if (fullscreen !== false) args.push('--fullscreen');
+  return new Promise(resolve => {
+    const child = spawn(retroarchExe(), args, { cwd: retroarchDir(), detached: false }); raProc = child;
+    child.once('error', error => { if (raProc === child) raProc = null; resolve({ ok: false, error: error.message }); });
+    child.once('spawn', () => resolve({ ok: true }));
+    child.once('exit', () => { if (raProc === child) raProc = null; });
+  });
 });
-ipcMain.handle('native:stop', () => { if (raProc) { try { raProc.kill(); } catch {} raProc = null; } return true; });
+ipcMain.handle('native:stop', event => { local(event, LEGACY); stopNative(); return true; });
 
-function download(url, headers, dest) {
+function download(url, headers, destination, base, redirects = 0) {
+  if (!sameServer(url, base) || redirects > 5) return Promise.reject(new Error('Unsafe download redirect.'));
   return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https') ? https : http;
-    const req = mod.get(url, { headers }, res => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return download(res.headers.location, headers, dest).then(resolve, reject);
+    const temporary = destination + '.' + randomUUID() + '.part';
+    let output;
+    const fail = error => { if (output) output.destroy(); fs.rm(temporary, { force: true }, () => reject(error)); };
+    const request = (new URL(url).protocol === 'https:' ? https : http).get(url, { headers, timeout: 30000 }, response => {
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        response.resume();
+        return download(new URL(response.headers.location, url).href, headers, destination, base, redirects + 1).then(resolve, reject);
       }
-      if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return; }
-      const tmp = dest + '.part';
-      const out = fs.createWriteStream(tmp);
-      res.pipe(out);
-      out.on('finish', () => { out.close(() => { fs.renameSync(tmp, dest); resolve(dest); }); });
-      out.on('error', reject);
+      if (response.statusCode !== 200) { response.resume(); reject(new Error('HTTP ' + response.statusCode)); return; }
+      output = fs.createWriteStream(temporary, { flags: 'wx' });
+      response.on('error', fail); response.on('aborted', () => fail(new Error('Download was interrupted.')));
+      output.on('error', fail);
+      output.on('finish', () => output.close(() => {
+        fs.rename(temporary, destination, error => error ? fail(error) : resolve(destination));
+      }));
+      response.pipe(output);
     });
-    req.on('error', reject);
+    request.on('timeout', () => request.destroy(new Error('Download timed out.')));
+    request.on('error', fail);
   });
 }
+
+async function smoke() {
+  const root = app.getPath('userData'); fs.mkdirSync(root, { recursive: true });
+  let server;
+  try {
+    await win.webContents.executeJavaScript(`document.title`);
+    const ready = await win.webContents.executeJavaScript(`typeof window.cartridge?.getCfg === 'function'`);
+    if (!ready) throw new Error('The packaged setup bridge did not load.');
+    const refused = await win.webContents.executeJavaScript(`window.cartridge.saveCfg({server:'javascript:alert(1)'}).then(()=>false,()=>true)`);
+    if (!refused) throw new Error('Unsafe server URL was accepted.');
+    server = http.createServer((_request, response) => { response.writeHead(200, { 'content-type': 'text/html' }); response.end('<!doctype html><title>Cartridge test RomM</title><h1>RomM console</h1>'); });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = 'http://127.0.0.1:' + server.address().port;
+    config.save(CFG_PATH, { server: base, user: 'smoke', pass: 'must-never-be-saved' });
+    await authAndLoad(config.load(CFG_PATH));
+    const isolated = await win.webContents.executeJavaScript(`Promise.all([window.cartridge.getCfg().then(()=>false,()=>true),window.RommNative.available().then(()=>false,()=>true)])`);
+    if (!isolated.every(Boolean)) throw new Error('Remote content reached privileged IPC.');
+    if (fs.readFileSync(CFG_PATH, 'utf8').includes('must-never-be-saved')) throw new Error('Password was persisted.');
+    await setup();
+    const image = await win.webContents.capturePage(); fs.writeFileSync(path.join(root, 'setup.png'), image.toPNG());
+    fs.writeFileSync(path.join(root, 'smoke-passed.json'), JSON.stringify({ nativeWindow: true, setup: true, remoteConsole: true, remoteIpcDenied: true, unsafeUrlDenied: true, plaintextPasswordAbsent: true, optionalRetroArch: fs.existsSync(retroarchExe()) }, null, 2));
+    app.exit(0);
+  } catch (error) { fs.writeFileSync(path.join(root, 'smoke-failed.txt'), error.stack); app.exit(1); }
+  finally { if (server) server.close(); }
+}
+app.whenReady().then(async () => {
+  createWindow();
+  if (smokeArg) { await new Promise(resolve => win.webContents.once('did-finish-load', resolve)); await smoke(); }
+});
+app.on('before-quit', stopNative);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });

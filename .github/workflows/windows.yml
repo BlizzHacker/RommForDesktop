@@ -1,0 +1,79 @@
+name: Cartridge for Windows
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build the portable app and installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Exercise the actual packaged desktop and portable app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Invoke-Smoke([string]$Executable, [string]$Name) {
+            $proof = Join-Path $env:RUNNER_TEMP $Name
+            New-Item -ItemType Directory -Path $proof -Force | Out-Null
+            $process = Start-Process -FilePath $Executable -ArgumentList ('"--smoke-test=' + $proof + '"') -PassThru -WindowStyle Hidden
+            try {
+              $deadline = (Get-Date).AddSeconds(120)
+              while ((Get-Date) -lt $deadline) {
+                if (Test-Path (Join-Path $proof 'smoke-failed.txt')) { Get-Content (Join-Path $proof 'smoke-failed.txt'); throw 'Desktop smoke failed' }
+                if (Test-Path (Join-Path $proof 'smoke-passed.json')) { Get-Content (Join-Path $proof 'smoke-passed.json'); return }
+                Start-Sleep -Milliseconds 500
+              }
+              throw 'Desktop smoke timed out'
+            } finally {
+              if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+              $evidence = Join-Path $env:GITHUB_WORKSPACE ('proof/' + $Name)
+              New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+              Get-ChildItem -Path $proof -File | Where-Object Name -in @('smoke-passed.json','smoke-failed.txt','setup.png') | Copy-Item -Destination $evidence
+            }
+          }
+          Invoke-Smoke (Join-Path $env:GITHUB_WORKSPACE 'dist/win-unpacked/Cartridge.exe') 'packaged'
+          $portable = Get-ChildItem 'dist/Cartridge-Windows-Portable-*.exe' | Select-Object -First 1
+          if (-not $portable) { throw 'Portable app artifact is missing' }
+          Invoke-Smoke $portable.FullName 'portable'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Cartridge-Windows-x64
+          if-no-files-found: error
+          path: |
+            dist/Cartridge-Windows-*.exe
+            proof/**
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Cartridge-Windows-x64
+          path: artifacts
+      - name: Publish verified Windows executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --title "Cartridge for Windows $RELEASE_TAG" --notes "Windows x64 desktop companion for your own RomM server. Includes a portable app and per-user installer. This is an unsigned community build; no Python, Node.js or administrator setup is required. RetroArch is optional and is not included in this release."
+          find artifacts -name 'Cartridge-Windows-*.exe' -exec gh release upload "$RELEASE_TAG" {} --clobber \;
