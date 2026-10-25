@@ -1,9 +1,7 @@
 name: Cartridge for Windows
+# Private builds run on the self-hosted Gitea runner.
+# Keep this workflow manual so pushes and PRs never consume GitHub minutes.
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
