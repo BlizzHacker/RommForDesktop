@@ -5,3 +5,5 @@ native/*.7z
 native/*.zip
 app/rom-cache/
 dist-manual/
+
+proof/
