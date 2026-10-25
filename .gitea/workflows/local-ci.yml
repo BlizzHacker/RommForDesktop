@@ -1,0 +1,56 @@
+name: Local desktop proof and Windows cross-build
+on:
+  push:
+    branches: [main, codex/cartridge-desktop]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    runs-on: cartridge-linux
+    timeout-minutes: 35
+    env:
+      PROOF: /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}
+      ELECTRON_CACHE: /opt/repos/ai-state/wadei/gitea-ci/cache/electron
+      ELECTRON_BUILDER_CACHE: /opt/repos/ai-state/wadei/gitea-ci/cache/electron-builder
+      npm_config_cache: /opt/repos/ai-state/wadei/gitea-ci/cache/npm
+    steps:
+      - uses: https://github.com/actions/checkout@v4
+      - name: Install and test the actual desktop source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PROOF"
+          node --version
+          npm ci --no-audit --no-fund
+          npm test 2>&1 | tee "$PROOF/tests.log"
+      - name: Exercise the Linux Electron window and native bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          Xvfb -displayfd 3 -screen 0 1280x800x24 -nolisten tcp 3>"$PROOF/display" >"$PROOF/xvfb.log" 2>&1 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do test -s "$PROOF/display" && break; sleep 0.25; done
+          test -s "$PROOF/display"
+          export DISPLAY=":$(cat "$PROOF/display")"
+          timeout 100s ./node_modules/.bin/electron --no-sandbox --disable-gpu . --smoke-test="$PROOF/linux-window" 2>&1 | tee "$PROOF/linux-window.log"
+          test -f "$PROOF/linux-window/smoke-passed.json"
+      - name: Cross-build the Windows portable package locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/electron-builder/cli.js --win portable --x64 --publish never 2>&1 | tee "$PROOF/cross-build.log"
+          version=$(node -p "require('./package.json').version")
+          package="dist/Cartridge-Windows-Portable-${version}-x64.exe"
+          test -f "$package"
+          sha256sum "$package" > "$PROOF/SHA256SUMS.txt"
+          file "$package" > "$PROOF/package-type.txt"
+          git rev-parse HEAD > "$PROOF/revision.txt"
+          printf 'Windows package cross-built on Linux. The Electron window smoke ran on Linux; this is not native Windows execution. Bulky package stays on the /opt/repos runner workspace.\n' > "$PROOF/scope.txt"
+      - name: Keep small proof files in the private Gitea repository
+        if: always()
+        uses: https://github.com/actions/upload-artifact@v3
+        with:
+          name: cartridge-desktop-local-proof
+          path: /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}
+          retention-days: 7
