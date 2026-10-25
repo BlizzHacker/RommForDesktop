@@ -52,5 +52,9 @@ jobs:
         uses: https://github.com/actions/upload-artifact@v3
         with:
           name: cartridge-desktop-local-proof
-          path: /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}
+          path: |
+            /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}/*.log
+            /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}/*.txt
+            /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}/linux-window/smoke-passed.json
+            /opt/repos/ai-state/wadei/gitea-ci/artifacts/desktop-${{ github.run_id }}/linux-window/setup.png
           retention-days: 7
