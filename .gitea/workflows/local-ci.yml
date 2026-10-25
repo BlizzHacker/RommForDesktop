@@ -43,11 +43,15 @@ jobs:
           version=$(node -p "require('./package.json').version")
           package="dist/Cartridge-Windows-Portable-${version}-x64.exe"
           test -f "$package"
-          sha256sum "$package" > "$PROOF/SHA256SUMS.txt"
+          mkdir -p "$PROOF/package"
+          cp "$package" "$PROOF/package/"
+          package_name=$(basename "$package")
+          (cd "$PROOF/package" && sha256sum "$package_name") > "$PROOF/SHA256SUMS.txt"
+          printf '%s\n' "$PROOF/package/$package_name" > "$PROOF/package-path.txt"
           file "$package" > "$PROOF/package-type.txt"
           git rev-parse HEAD > "$PROOF/revision.txt"
-          printf 'Windows package cross-built on Linux. The Electron window smoke ran on Linux; this is not native Windows execution. Bulky package stays on the /opt/repos runner workspace.\n' > "$PROOF/scope.txt"
-      - name: Keep small proof files in the private Gitea repository
+          printf 'Windows package cross-built on Linux. The Electron window smoke ran on Linux; this is not native Windows execution. The built package is retained under the persistent /opt/repos proof folder.\n' > "$PROOF/scope.txt"
+      - name: Keep small proof files in Gitea
         if: always()
         uses: https://github.com/actions/upload-artifact@v3
         with:
