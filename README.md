@@ -87,3 +87,10 @@ provided by Cartridge.
 [Xbox](https://github.com/BlizzHacker/RommForXbox) and
 [Roku](https://github.com/BlizzHacker/RommForRoku) have separate companion apps.
 Their installation and playback limits differ from this Windows client.
+
+## License and credits
+
+Cartridge's client code is [MIT licensed](LICENSE). See
+[third-party notices](THIRD-PARTY-NOTICES.md) for Electron/Chromium notices and
+credits to RomM, EmulatorJS and optional RetroArch components. Their licenses
+and trademarks remain their own.
