@@ -51,7 +51,7 @@ jobs:
                 $report = Join-Path $proof 'smoke-passed.json'
                 if (Test-Path -LiteralPath $report) {
                   $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-                  foreach ($field in @('nativeWindow','setup','remoteConsole','remoteIpcDenied','unsafeUrlDenied','plaintextPasswordAbsent')) {
+                  foreach ($field in @('nativeWindow','setup','remoteConsole','remoteIpcDenied','romarrHandoffConfigured','unsafeUrlDenied','plaintextPasswordAbsent')) {
                     if ($result.$field -isnot [bool] -or $result.$field -ne $true) { throw "Missing or false proof field: $Name/$field" }
                   }
                   if ($result.optionalRetroArch -isnot [bool] -or $result.optionalRetroArch -ne $false) { throw 'Standard build unexpectedly depends on RetroArch' }
@@ -64,10 +64,16 @@ jobs:
               }
               throw "Desktop smoke timed out: $Name"
             } finally {
-              if ($process -and -not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
-              $evidence = Join-Path $env:GITHUB_WORKSPACE ('proof/' + $Name)
-              New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-              Get-ChildItem -LiteralPath $proof -File | Where-Object Name -in @('smoke-passed.json','smoke-failed.txt','setup.png') | Copy-Item -Destination $evidence
+              try {
+                if ($process -and -not $process.WaitForExit(5000)) {
+                  try { $process.Kill($true) } catch { if (-not $process.HasExited) { throw } }
+                  if (-not $process.WaitForExit(5000)) { throw "Desktop smoke process did not exit: $Name" }
+                }
+              } finally {
+                $evidence = Join-Path $env:GITHUB_WORKSPACE ('proof/' + $Name)
+                New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+                Get-ChildItem -LiteralPath $proof -File | Where-Object Name -in @('smoke-passed.json','smoke-failed.txt','setup.png') | Copy-Item -Destination $evidence
+              }
             }
           }
           function Assert-OwnedInstall([string]$Path) {

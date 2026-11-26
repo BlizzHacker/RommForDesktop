@@ -80,7 +80,7 @@ function createWindow() {
   win.webContents.on('will-attach-webview', event => event.preventDefault());
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Cartridge', submenu: [
-      { label: 'Open My games in ROMarr', click: openOwnedGames },
+      { id: 'romarr-owned-games', label: 'Open My games in ROMarr', click: openOwnedGames },
       { label: 'Change servers', accelerator: 'CmdOrCtrl+,', click: setup },
       { type: 'separator' }, { role: 'quit' },
     ] },
@@ -173,14 +173,24 @@ async function smoke() {
     server = http.createServer((_request, response) => { response.writeHead(200, { 'content-type': 'text/html' }); response.end('<!doctype html><title>Cartridge test RomM</title><h1>RomM console</h1>'); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = 'http://127.0.0.1:' + server.address().port;
-    config.save(CFG_PATH, { server: base, user: 'smoke', pass: 'must-never-be-saved' });
-    await authAndLoad(config.load(CFG_PATH));
+    config.save(CFG_PATH, { server: base, user: 'smoke', romarr: base, pass: 'must-never-be-saved' });
+    const cfg = config.load(CFG_PATH);
+    const ownedGamesMenu = Menu.getApplicationMenu()?.getMenuItemById('romarr-owned-games');
+    if (!ownedGamesMenu?.enabled || config.ownedGamesUrl(cfg) !== base + '/#lists') {
+      throw new Error('The ROMarr My games menu or configured handoff URL is missing.');
+    }
+    await authAndLoad(cfg);
     const isolated = await win.webContents.executeJavaScript(`Promise.all([window.cartridge.getCfg().then(()=>false,()=>true),window.RommNative.available().then(()=>false,()=>true)])`);
     if (!isolated.every(Boolean)) throw new Error('Remote content reached privileged IPC.');
     if (fs.readFileSync(CFG_PATH, 'utf8').includes('must-never-be-saved')) throw new Error('Password was persisted.');
     await setup();
+    const romarrSetup = await win.webContents.executeJavaScript(
+      "window.cartridge.getCfg().then(cfg => ({ address: cfg.romarr, field: !!document.querySelector('#romarr') }))");
+    if (!romarrSetup.field || romarrSetup.address !== base) {
+      throw new Error('The saved ROMarr address is unavailable in setup.');
+    }
     const image = await win.webContents.capturePage(); fs.writeFileSync(path.join(root, 'setup.png'), image.toPNG());
-    fs.writeFileSync(path.join(root, 'smoke-passed.json'), JSON.stringify({ nativeWindow: true, setup: true, remoteConsole: true, remoteIpcDenied: true, unsafeUrlDenied: true, plaintextPasswordAbsent: true, optionalRetroArch: fs.existsSync(retroarchExe()) }, null, 2));
+    fs.writeFileSync(path.join(root, 'smoke-passed.json'), JSON.stringify({ nativeWindow: true, setup: true, remoteConsole: true, remoteIpcDenied: true, romarrHandoffConfigured: true, unsafeUrlDenied: true, plaintextPasswordAbsent: true, optionalRetroArch: fs.existsSync(retroarchExe()) }, null, 2));
     app.exit(0);
   } catch (error) { fs.writeFileSync(path.join(root, 'smoke-failed.txt'), error.stack); app.exit(1); }
   finally { if (server) server.close(); }
