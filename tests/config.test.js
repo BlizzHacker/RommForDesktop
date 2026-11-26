@@ -28,3 +28,14 @@ test('corrupt config is reported and preserved', t => {
 test('non-object configuration is reported and preserved', t => {
   const file = fixture(t); fs.writeFileSync(file, 'null'); assert.throws(() => config.load(file), /Cannot read/); assert.equal(fs.readFileSync(file, 'utf8'), 'null');
 });
+
+test('ROMarr handoff opens only a saved HTTP(S) server and a fixed library route', t => {
+  const file = fixture(t);
+  config.save(file, { server: 'https://romm.example.com', romarr: 'https://romarr.example.com/' });
+  assert.equal(config.ownedGamesUrl(config.load(file)), 'https://romarr.example.com/#lists');
+  assert.equal(config.ownedGamesUrl({}), '');
+  for (const unsafe of ['steam://install/123', 'https://key@romarr.example.com', 'https://romarr.example.com/?key=hidden']) {
+    assert.throws(() => config.save(file, { server: 'https://romm.example.com', romarr: unsafe }));
+  }
+  assert.equal(config.ownedGamesUrl(config.load(file)), 'https://romarr.example.com/#lists');
+});

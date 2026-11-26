@@ -42,7 +42,7 @@ experience. No pairing, streaming or heavy-platform guarantee is made by this bu
 
 ## Privacy and saved data
 
-Cartridge stores the server address and username in
+Cartridge stores the server addresses and RomM username in
 `%APPDATA%\Cartridge\config.json`. Passwords are used only for the immediate
 sign-in and are never saved by Cartridge. Opening configuration from an older
 release removes its previously saved plaintext password. RomM still manages its
